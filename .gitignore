@@ -1,0 +1,9 @@
+.DS_Store
+*.pyc
+venv/
+
+# Don't include user config files
+config.py
+
+# Don't include any generated zip files
+*.zip

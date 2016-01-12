@@ -1,0 +1,35 @@
+DIRECTORY_URL = 'https://acme-staging.api.letsencrypt.org/directory'
+# DIRECTORY_URL = 'https://acme-v01.api.letsencrypt.org/directory'
+
+# Number of bits to use for your Lets-Encrypt User Key
+# Leave alone if you don't know what this is
+USERKEY_BITS = 2048
+
+# The AWS region your resources exist in
+AWS_REGION = 'us-east-1'
+
+# The SNS topic to send messages to(Set to None to disable)
+SNS_TOPIC_ARN = "$SNS_ARN"
+
+# S3 Bucket where we'll store the Lets-Encrypt user key and necessary files
+# These files will be stored in a subdomain
+S3CONFIGBUCKET = "$S3_CONFIG_BUCKET"
+
+# The number of bits for your certificate
+# Leave alone if you don't know what this is
+CERT_BITS = 2048
+
+# The email you want to register with Lets-Encrypt
+# (Can be used for account recovery and things)
+EMAIL = "$NOTIFY_EMAIL"
+
+# The S3 Bucket to be used for Challenge Validation
+S3CHALLENGEBUCKET = "$S3_CHALLENGE_BUCKET"
+
+# This is the list of all domains you want to validate with Lets-Encrypt, as
+# well as the available validation methods
+DOMAINS = $DOMAINS
+
+# This is the list of CloudFront IDs and list of domains that will be present
+# on the ssl cert for the Distribution.
+SITES = $SITES

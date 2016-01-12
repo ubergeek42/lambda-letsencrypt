@@ -1,0 +1,61 @@
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Sid": "lambdalogs",
+            "Effect": "Allow",
+            "Action": [
+                "logs:CreateLogGroup",
+                "logs:CreateLogStream",
+                "logs:PutLogEvents"
+            ],
+            "Resource": "arn:aws:logs:*:*:*"
+        },
+        {
+            "Sid": "cloudfrontconfig",
+            "Effect": "Allow",
+            "Action": [
+                "cloudfront:GetDistributionConfig",
+                "cloudfront:UpdateDistribution"
+            ],
+            "Resource": [
+                "*"
+            ]
+        },
+        {
+            "Sid": "iamcert",
+            "Effect": "Allow",
+            "Action": [
+                "iam:DeleteServerCertificate",
+                "iam:GetServerCertificate",
+                "iam:ListServerCertificates",
+                "iam:UpdateServerCertificate",
+                "iam:UploadServerCertificate"
+            ],
+            "Resource": [
+                "*"
+            ]
+        },
+        {
+            "Sid": "s3bucketpermissions",
+            "Effect": "Allow",
+            "Action": [
+                "s3:GetObject",
+                "s3:GetObjectAcl",
+                "s3:PutObject",
+                "s3:PutObjectAcl",
+                "s3:ListBucket",
+                "s3:DeleteObject"
+            ],
+            "Resource": []
+        },
+        {
+            "Sid": "snspublish",
+            "Effect": "Allow",
+            "Action": [
+                "sns:Publish"
+            ],
+            "Resource": []
+        }
+    ]
+}
