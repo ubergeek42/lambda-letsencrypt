@@ -1,3 +1,4 @@
+#!/usr/bin/env python
 """Lambda Lets-Encrypt Configuration/Setup Tool
 
 This is a wizard that will help you configure the Lambda function to
