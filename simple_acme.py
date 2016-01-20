@@ -261,7 +261,14 @@ class AcmeAuthorization:
         for challenge in challenges:
             token = challenge['token']
             key_authorization = "{}.{}".format(token, self.user.thumbprint)
-            ret = func_challenge(self.domain, token, key_authorization)
+
+            # DNS validation uses a different value for validation
+            if challenge_type == 'dns-01':
+                hashed_keyauth = hashlib.sha256(key_authorization.encode("utf-8")).digest()
+                hashed_keyauth = base64.urlsafe_b64encode(hashed_keyauth).decode('utf8').replace("=", "")
+                ret = func_challenge(self.domain, token, hashed_keyauth)
+            else:
+                ret = func_challenge(self.domain, token, key_authorization)
 
             if not ret:
                 logger.debug("Challenge completion handler failed...")

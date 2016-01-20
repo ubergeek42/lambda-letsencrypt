@@ -21,7 +21,7 @@ import zipfile
 from docopt import docopt
 from string import Template
 
-from installer import sns, cloudfront, iam, s3, awslambda
+from installer import sns, cloudfront, iam, s3, awslambda, elb, route53
 
 
 class colors:
@@ -53,7 +53,7 @@ def get_input(prompt, allow_empty=True):
     py3 = version_info[0] > 2  # creates boolean value for test that Python major version > 2
     response = None
     while response is None or (not allow_empty and len(response) == 0):
-        print(colors.QUESTION + prompt + colors.ENDC, end='')
+        print(colors.QUESTION + "> " + prompt + colors.ENDC, end='')
         if py3:
             response = input()
         else:
@@ -110,11 +110,79 @@ def choose_s3_bucket():
     return get_selection("Select the S3 Bucket to use:", options, prompt_after="Which S3 Bucket?", allow_empty=False)
 
 
+def wizard_elb(global_config):
+    print_header("ELB Configuration")
+    write_str("""\
+        Now we'll detect your existing Elastic Load Balancers and allow you
+        to configure them to use SSL. You must select the domain names
+        you want on the certificate for each ELB.""")
+    write_str("""\
+        Note that only DNS validation(via Route53) is supported for ELBs""")
+    print()
+
+    global_config['elb_sites'] = []
+    global_config['elb_domains'] = []
+
+    # Get the list of all Cloudfront Distributions
+    elb_list = elb.list_elbs()
+    elb_list_opts = []
+    for i, elb_name in enumerate(elb_list):
+        elb_list_opts.append({
+            'selector': i,
+            'prompt': elb_name,
+            'return': elb_name
+        })
+
+    route53_list = route53.list_zones()
+    route53_list_opts = []
+    for i, zone in enumerate(route53_list):
+        route53_list_opts.append({
+            'selector': i,
+            'prompt': "{} - {}".format(zone['Name'], zone['Id']),
+            'return': zone
+        })
+
+    while True:
+        lb = get_selection("Choose an ELB to configure SSL for(Leave blank for none)", elb_list_opts, prompt_after="Which ELB?", allow_empty=True)
+        if lb is None:
+            break
+
+        lb_port = get_input("What port number will this certificate be for(HTTPS is 443) [443]?", allow_empty=True)
+        if len(lb_port) == 0:
+            lb_port = 443
+
+        domains = []
+        while True:
+            if len(domains) > 0:
+                print("Already selected: {}".format(",".join(domains)))
+            zone = get_selection("Choose a Route53 Zone that points to this load balancer: ", route53_list_opts, prompt_after="Which zone?", allow_empty=True)
+            # stop when they don't enter anything
+            if zone is None:
+                break
+
+            # Only allow adding each domain once
+            if zone['Name'] in domains:
+                continue
+            domains.append(zone['Name'])
+            global_config['elb_domains'].append({
+                'DOMAIN': zone['Name'],
+                'ROUTE53_ZONE_ID': zone['Id'],
+                'VALIDATION_METHODS': ['dns-01']
+            })
+
+        site = {
+            'ELB_NAME': lb,
+            'ELB_PORT': lb_port,
+            'DOMAINS': domains,
+        }
+        global_config['elb_sites'].append(site)
+
+
 def wizard_cf(global_config):
     print_header("CloudFront Configuration")
 
-    global_config['sites'] = []
-    global_config['domains'] = []
+    global_config['cf_sites'] = []
+    global_config['cf_domains'] = []
 
     # Get the list of all Cloudfront Distributions
     cf_dist_list = cloudfront.list_distributions()
@@ -131,16 +199,13 @@ def wizard_cf(global_config):
         to configure them to use SSL. Domain names will be automatically
         detected from the 'Aliases/CNAMEs' configuration section of each
         Distribution.""")
-    write_str("""\
-        Pricing: There is no additional charge associated with configuring a
-        CloudFront distribution to use your own SSL certificate. Note that the
-        certificate will only work for clients that support SNI.""")
     print()
     write_str("""\
         You will configure each Distribution fully before being presented with
         the list of Distributions again. You can configure as many Distributions
-        as you like, but make sure to configure at least one.""")
+        as you like.""")
     while True:
+        print()
         dist = get_selection("Select a CloudFront Distribution to configure with Lets-Encrypt(leave blank to finish)", cf_dist_opts, prompt_after="Which CloudFront Distribution?", allow_empty=True)
         if dist is None:
             break
@@ -149,47 +214,49 @@ def wizard_cf(global_config):
         write_str("The following domain names exist for the selected CloudFront Distribution:")
         write_str("    " + ", ".join(cnames))
         write_str("Each domain in this list will be validated with Lets-Encrypt and added to the certificate assigned to this Distribution.")
-        write_str("For each domain, you need to select the validation method you want to use. Note that the DNS validation method can only be used if the domain is managed by Route53.")
         print()
         for dns_name in cnames:
-            print("For the domain '{}'".format(dns_name))
-            validate_via_http = get_yn("    Attempt validation using http", default=True)
-            validate_via_dns = get_yn("    Attempt validation using dns(requires Route53)", default=False)
-            validation_methods = []
-            if validate_via_http:
-                validation_methods.append('http-01')
-            if validate_via_dns:
-                validation_methods.append('dns-01')
             domain = {
                 'DOMAIN': dns_name,
-                'CLOUDFRONT_ID': dist['Id'],
-                'VALIDATION_METHODS': validation_methods
+                'VALIDATION_METHODS': []
             }
-            global_config['domains'].append(domain)
+            print("Choose validation methods for the domain '{}'".format(dns_name))
+            route53_id = route53.get_zone_id(dns_name)
+            if route53_id:
+                write_str(colors.OKGREEN + "Route53 zone detected!" + colors.ENDC)
+                validate_via_dns = get_yn("Validate using DNS", default=False)
+                if validate_via_dns:
+                    domain['ROUTE53_ZONE_ID'] = route53_id
+                    domain['VALIDATION_METHODS'].append('dns-01')
+            else:
+                write_str(colors.WARNING + "No Route53 zone detected, DNS validation not possible." + colors.ENDC)
+
+            validate_via_http = get_yn("Validate using HTTP", default=True)
+            if validate_via_http:
+                domain['CLOUDFRONT_ID'] = dist['Id']
+                domain['VALIDATION_METHODS'].append('http-01')
+
+            global_config['cf_domains'].append(domain)
         site = {
             'CLOUDFRONT_ID': dist['Id'],
             'DOMAINS': cnames
         }
-        global_config['sites'].append(site)
+        global_config['cf_sites'].append(site)
 
 
 def wizard_sns(global_config):
     sns_email = None
 
-    print_header("SNS Configuration")
+    print_header("Notifications")
     write_str("""\
-        SNS can be used to notify you by email of successful
-        certificate issuances or errors that have occurred.""")
-    print()
-    write_str("""Pricing is $2/100,000 messages(as of 1/1/2016)""")
-    write_str("""\
-                 Worst case is around 100 notifications per month,
-                 typical case is probably just 1 or 2 per month. This cost
-                 should be neglible.""")
+        The lambda function can send notifications when a certificate is issued,
+        errors occur, or other things that may need your attention.
+        Notifications are optional.""")
 
-    use_sns = get_yn('Do you want to configure these notifications', True)
-    if use_sns:
-        sns_email = get_input("Enter the email address for notifications: ", allow_empty=False)
+    use_sns = True
+    sns_email = get_input("Enter the email address for notifications(blank to disable): ", allow_empty=True)
+    if len(sns_email) == 0:
+        use_sns = False
 
     global_config['use_sns'] = use_sns
     global_config['sns_email'] = sns_email
@@ -197,10 +264,7 @@ def wizard_sns(global_config):
 
 def wizard_s3_cfg_bucket(global_config):
     print_header("S3 Configuration Bucket")
-    write_str('An S3 Bucket is required to store configuration. This wizard can create one for you or you can select an existing bucket to use.')
-    print()
-    write_str("""Pricing for S3 is $0.03/GB, this application uses less than 1MB typically. The Lambda function makes around 10 S3 GET/POST requests per run(varies based on the number of domains being managed). A typical month would be (well) less than 1000 requests, for a per month cost of less than a penny.""")
-
+    write_str('An S3 Bucket is required to store configuration. If you already have a bucket you want to use for this choose no and select it from the list. Otherwise let the wizard create one for you.')
     create_s3_cfg_bucket = get_yn("Create a bucket for configuration", True)
 
     if create_s3_cfg_bucket:
@@ -214,10 +278,10 @@ def wizard_s3_cfg_bucket(global_config):
 
 def wizard_iam(global_config):
     print_header("IAM Configuration")
-    write_str("An IAM policy must be created for this lambda function giving it access to CloudFront, the necessary S3 Buckets, SNS, IAM(certificates) and CloudWatch logs.")
+    write_str("An IAM role must be created for this lambda function giving it access to CloudFront, Route53, S3, SNS(notifications), IAM(certificates), and CloudWatch(logs/alarms).")
     print()
-    write_str("Pricing: There is no cost associated with this feature.")
-    create_iam_role = get_yn("Do you want to automatically create this policy", True)
+    write_str("If you do not let the wizard create this role you will be asked to select an existing role to use.")
+    create_iam_role = get_yn("Do you want to automatically create this role", True)
     if not create_iam_role:
         role_list = iam.list_roles()
         options = []
@@ -240,21 +304,20 @@ def wizard_challenges(global_config):
     s3_challenge_bucket = None
 
     print_header("Lets-Encrypt Challenge Validation Settings")
-    write_str("""This tool will handle validation of your domains automatically. There are multiple validation methods possible, the two most common being HTTP based or DNS based.""")
+    write_str("""This tool will handle validation of your domains automatically. There are two possible validation methods: HTTP and DNS.""")
     print()
-    write_str("HTTP based validation requires an S3 bucket to store the challenge responses in. This bucket needs to be publicly accessible. Your CloudFront Distribution(s) will be reconfigured to use this bucket as an origin for challenge responses.")
-    write_str("If you choose not to configure this method you will only be able to use DNS based validation.")
+    write_str("HTTP validation is only available for CloudFront sites. It requires an S3 bucket to store the challenge responses in. This bucket needs to be publicly accessible. Your CloudFront Distribution(s) will be reconfigured to use this bucket as an origin for challenge responses.")
+    write_str("If you do not configure a bucket for this you will only be able to use DNS validation.")
     print()
-    write_str("DNS based validation requires your domain's DNS to be managed with Route53. This validation method is always available and requires no additional configuration.")
-    write_str(colors.WARNING + "Note: DNS support is currently not implemented" + colors.ENDC)
+    write_str("DNS validation requires your domain to be managed with Route53. This validation method is always available and requires no additional configuration.")
+    write_str(colors.WARNING + "Note: DNS validation is currently only supported by the staging server." + colors.ENDC)
     print()
-    write_str("Each domain you configure can be configured to validate using either of these methods.")
+    write_str("Each domain you want to manage can be configured to validate using either of these methods.")
     print()
 
-    use_http_challenges = get_yn("Do you want to configure HTTP based validation", True)
+    use_http_challenges = get_yn("Do you want to configure HTTP validation", True)
     if use_http_challenges:
-        write_str("Pricing note: The bucket used for HTTP based validation will store small (<1kb) files for validation purposes only. These files will only be requested by the Lets-Encrypt validation process. These files will be set to expire within a few days and as such should have a very minimal cost associated with them.")
-        create_s3_challenge_bucket = get_yn("Do you want to create a bucket for these challenges", True)
+        create_s3_challenge_bucket = get_yn("Do you want to create a bucket for these challenges(Choose No to select an existing bucket)", True)
         if create_s3_challenge_bucket:
             s3_challenge_bucket = "lambda-letsencrypt-challenges-{}".format(global_config['ts'])
         else:
@@ -272,9 +335,7 @@ def wizard_summary(global_config):
     gc = global_config
 
     print_header("**Summary**")
-    print("Configure SNS:                                   {}".format(gc['use_sns']))
-    if gc['use_sns']:
-        print("    SNS Email:                                   {}".format(gc['sns_email']))
+    print("Notification Email:                              {}".format(gc['sns_email'] or "(notifications disabled)"))
 
     print("S3 Config Bucket:                                {}".format(gc['s3_cfg_bucket']), end="")
     if (gc['create_s3_cfg_bucket']):
@@ -295,13 +356,19 @@ def wizard_summary(global_config):
         else:
             print(" (existing)")
 
-    print("CloudFront Domains To Manage With Lets-Encrypt")
-    for d in gc['domains']:
+    print("Domains To Manage With Lets-Encrypt")
+    for d in gc['cf_domains']:
+        print("    {} - [{}]".format(d['DOMAIN'], ",".join(d['VALIDATION_METHODS'])))
+    for d in gc['elb_domains']:
         print("    {} - [{}]".format(d['DOMAIN'], ",".join(d['VALIDATION_METHODS'])))
 
     print("CloudFront Distributions To Manage:")
-    for cf in gc['sites']:
+    for cf in gc['cf_sites']:
         print("    {} - [{}]".format(cf['CLOUDFRONT_ID'], ",".join(cf['DOMAINS'])))
+
+    print("Elastic Load Balancers to Manage:")
+    for lb in gc['elb_sites']:
+        print("    {}:{} - [{}]".format(lb['ELB_NAME'], lb['ELB_PORT'], ",".join(lb['DOMAINS'])))
 
 
 def wizard_save_config(global_config):
@@ -315,7 +382,7 @@ def wizard_save_config(global_config):
 
     # Configure SNS if appropriate
     sns_arn = None
-    if global_config['use_sns']:
+    if len(global_config['sns_email']) > 0:
         # Create SNS Topic if necessary
         print("Creating SNS Topic for Notifications ", end='')
         sns_arn = sns.get_or_create_topic(global_config['sns_email'])
@@ -352,8 +419,11 @@ def wizard_save_config(global_config):
 
     templatevars['S3_CONFIG_BUCKET'] = global_config['s3_cfg_bucket']
     templatevars['S3_CHALLENGE_BUCKET'] = global_config['s3_challenge_bucket']
-    templatevars['DOMAINS'] = json.dumps(global_config['domains'], indent=4)
-    templatevars['SITES'] = json.dumps(global_config['sites'], indent=4)
+
+    domains = global_config['cf_domains'] + global_config['elb_domains']
+    sites = global_config['cf_sites'] + global_config['elb_sites']
+    templatevars['DOMAINS'] = json.dumps(domains, indent=4)
+    templatevars['SITES'] = json.dumps(sites, indent=4)
 
     # write out the config file
     config = configfile.substitute(templatevars)
@@ -428,7 +498,8 @@ def wizard(global_config):
         date.
 
         The cost of the AWS services used to make this work are typically less
-        than one cent per month.
+        than a penny per month. For full pricing details please refer to the
+        docs.
     """)
 
     print()
@@ -446,13 +517,15 @@ def wizard(global_config):
     wizard_s3_cfg_bucket(global_config)
     wizard_challenges(global_config)
     wizard_cf(global_config)
+    wizard_elb(global_config)
 
     cfg_menu = []
     cfg_menu.append({'selector': 1, 'prompt': 'SNS', 'return': wizard_sns})
     cfg_menu.append({'selector': 2, 'prompt': 'IAM', 'return': wizard_iam})
     cfg_menu.append({'selector': 3, 'prompt': 'S3 Config', 'return': wizard_s3_cfg_bucket})
     cfg_menu.append({'selector': 4, 'prompt': 'Challenges', 'return': wizard_challenges})
-    cfg_menu.append({'selector': 5, 'prompt': 'CloudFront/Domains', 'return': wizard_cf})
+    cfg_menu.append({'selector': 5, 'prompt': 'CloudFront', 'return': wizard_cf})
+    cfg_menu.append({'selector': 6, 'prompt': 'Elastic Load Balancers', 'return': wizard_cf})
     cfg_menu.append({'selector': 9, 'prompt': 'Done', 'return': None})
 
     finished = False
