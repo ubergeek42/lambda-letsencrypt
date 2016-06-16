@@ -16,32 +16,37 @@ work for you. Or if you're more of a power user and want to see what all is
 going on you can follow the steps to configure it manually.
 
 ### Automatic Wizard
-The easiest way to get started is to check out this repository and run the
-`wizard.py` script. You'll need to install the single dependency `boto3`
-first though and configure it with your AWS credentials.
 
-Just run `pip install boto3` and then create the file `~/.aws/credentials` with the following contents:
-```ini
-[default]
-aws_access_key_id = YOUR_ACCESS_KEY
-aws_secret_access_key = YOUR_SECRET_KEY
-region = us-east-1  # Replace with your region
-```
+1. Download this repo
 
-If you already have `awscli` installed you can run `aws configure` instead to
-set up your credentials.
+2. Install the required dependency with `pip install boto3`
 
-#### Run the wizard!
-The wizard will ask you a few questions about your desired set up and then
-create a configuration file and upload the function for you. The only thing it
-can't do is configure the daily scheduling of the function because Amazon
-doesn't have an API for that yet(But it'll walk you through the process of doing
-it yourself)
+3. Save your AWS credentials:
+
+    * install [`awscli`](https://aws.amazon.com/cli/) and run `aws configure`, **or**
+    * manually create the file `~/.aws/credentials` with the following contents:
+
+        ```ini
+        [default]
+        aws_access_key_id = YOUR_ACCESS_KEY
+        aws_secret_access_key = YOUR_SECRET_KEY
+        region = us-east-1 ; Replace with your region
+        ```
+
+4. Run `python wizard.py`
+    
+    This will
+
+    * ask you a few questions about your desired set up
+    * create a configuration file 
+    * upload the lambda function for you
+    * help you manually configure the lambda's daily scheduling (this can't be done automatically because there's no API yet)
 
 ### Manual Setup
 More docs coming soon.
 
-# How's it work?
+# How does it work?
+
 This works by running a Lambda function once per day which will check
 your certificate's expiration, and renew it if it is nearing expiration.
 
