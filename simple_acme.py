@@ -59,7 +59,7 @@ def _send_signed_request(user, url, payload):
         return resp.getcode(), resp.read(), resp.info()
     except IOError as e:
         LE_NONCE = e.info().getheader('Replay-Nonce', None)
-        return e.code, e.read(), e.info()
+        raise IOError("Unexpected response: {}".format(e.read()))
 
 
 class AcmeUser:
