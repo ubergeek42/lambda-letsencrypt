@@ -345,9 +345,6 @@ subjectAltName = @alt_names
         csr = out
         os.unlink(f.name)
 
-        with open("csr_test.der", "wb") as csr_f:
-            csr_f.write(csr)
-
         return pkey, csr
 
     @staticmethod
