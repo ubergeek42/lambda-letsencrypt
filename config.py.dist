@@ -1,5 +1,5 @@
-DIRECTORY_URL = 'https://acme-staging.api.letsencrypt.org/directory'
-# DIRECTORY_URL = 'https://acme-v01.api.letsencrypt.org/directory'
+DIRECTORY_URL = 'https://acme-staging.api.letsencrypt.org'
+# DIRECTORY_URL = 'https://acme-v01.api.letsencrypt.org'
 
 # Number of bits to use for your Lets-Encrypt User Key
 # Leave alone if you don't know what this is
