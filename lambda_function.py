@@ -200,7 +200,7 @@ def iam_upload_cert(certname, cert, key, chain):
         # upload new cert
         try:
             newcert = iam.upload_server_certificate(
-                Path="/letsencrypt_lambda/",
+                Path="/cloudfront/",
                 ServerCertificateName=certname,
                 CertificateBody=cert,
                 PrivateKey=key,
@@ -219,7 +219,7 @@ def iam_upload_cert(certname, cert, key, chain):
 def iam_delete_cert(arn=None, cert_id=None):
     oldcert_name = None
     allcerts = iam.list_server_certificates(
-        PathPrefix="/letsencrypt_lambda/"
+        PathPrefix="/cloudfront/"
     )
     for c in allcerts['ServerCertificateMetadataList']:
         if c['ServerCertificateId'] == cert_id or c['Arn'] == arn:
@@ -252,7 +252,7 @@ def iam_delete_cert(arn=None, cert_id=None):
 
 
 def iam_check_expiration(arn=None, cert_id=None):
-    allcerts = iam.list_server_certificates(PathPrefix="/letsencrypt_lambda/")
+    allcerts = iam.list_server_certificates(PathPrefix="/cloudfront/")
     expiration = None
     cert = None
     for c in allcerts['ServerCertificateMetadataList']:
